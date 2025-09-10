@@ -7,20 +7,26 @@
     <p><strong>Price:</strong> {{ product.price_cents | usd }} / month</p>
 
     {% if current_user.is_authenticated %}
-      <form method="post" action="{{ url_for('product_subscribe', slug=product.slug) }}" style="margin-top: 12px;">
-        {% if sub is none %}
-          <button type="submit" class="btn primary">Subscribe</button>
-        {% elif sub.status == 'active' %}
-          <p class="small">You are currently subscribed.</p>
-          <button type="submit" class="btn">Cancel Subscription</button>
-        {% else %}
-          <p class="small">Subscription is canceled.</p>
-          <button type="submit" class="btn primary">Reactivate Subscription</button>
-        {% endif %}
-      </form>
+      {% if product.stripe_price_id %}
+        <form method="post" action="{{ url_for('checkout', slug=product.slug) }}" style="margin-top: 12px;">
+          <button type="submit" class="btn primary">Subscribe with Stripe</button>
+        </form>
+        <p class="small muted">Manage card or cancel in <a href="{{ url_for('billing_portal') }}">Billing</a>.</p>
+      {% else %}
+        <form method="post" action="{{ url_for('product_subscribe', slug=product.slug) }}" style="margin-top: 12px;">
+          {% if sub is none %}
+            <button type="submit" class="btn primary">Subscribe</button>
+          {% elif sub.status == 'active' %}
+            <p class="small">You are currently subscribed.</p>
+            <button type="submit" class="btn">Cancel Subscription</button>
+          {% else %}
+            <p class="small">Subscription is canceled.</p>
+            <button type="submit" class="btn primary">Reactivate Subscription</button>
+          {% endif %}
+        </form>
+      {% endif %}
     {% else %}
       <p class="small muted">Please <a href="{{ url_for('login', next=request.path) }}">login</a> to subscribe.</p>
     {% endif %}
   </article>
 {% endblock %}
-

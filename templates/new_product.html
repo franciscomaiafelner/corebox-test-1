@@ -12,10 +12,12 @@
     <label>Price (in cents)
       <input type="number" name="price_cents" min="0" step="1" placeholder="2500" required />
     </label>
+    <label>Stripe Price ID (optional)
+      <input type="text" name="stripe_price_id" placeholder="price_..." />
+    </label>
     <label>Description
       <textarea name="description" rows="4" placeholder="What’s inside the box?"></textarea>
     </label>
     <button type="submit" class="btn primary">Create</button>
   </form>
 {% endblock %}
-

@@ -22,6 +22,7 @@ from flask_login import (
 )
 from werkzeug.security import generate_password_hash, check_password_hash
 from dotenv import load_dotenv
+import stripe
 
 
 load_dotenv()
@@ -43,6 +44,10 @@ def create_app() -> Flask:
     # Login manager
     login_manager = LoginManager(app)
     login_manager.login_view = "login"
+
+    # Stripe config
+    stripe.api_key = os.environ.get("STRIPE_SECRET_KEY", "")
+    webhook_secret = os.environ.get("STRIPE_WEBHOOK_SECRET", "")
 
     # ----- DB helpers -----
     def get_db():
@@ -92,11 +97,25 @@ def create_app() -> Flask:
             """
         )
 
-        # Lightweight migration: add seller_id to products if missing
+        # Lightweight migration: add seller_id and Stripe columns to products if missing
         cols = db.execute("PRAGMA table_info(products)").fetchall()
         col_names = {c[1] for c in cols}
         if "seller_id" not in col_names:
             db.execute("ALTER TABLE products ADD COLUMN seller_id INTEGER REFERENCES users(id)")
+        if "stripe_price_id" not in col_names:
+            db.execute("ALTER TABLE products ADD COLUMN stripe_price_id TEXT")
+
+        # Users: add stripe_customer_id
+        ucols = db.execute("PRAGMA table_info(users)").fetchall()
+        ucol_names = {c[1] for c in ucols}
+        if "stripe_customer_id" not in ucol_names:
+            db.execute("ALTER TABLE users ADD COLUMN stripe_customer_id TEXT")
+
+        # Subscriptions: add stripe_subscription_id
+        scols = db.execute("PRAGMA table_info(subscriptions)").fetchall()
+        scol_names = {c[1] for c in scols}
+        if "stripe_subscription_id" not in scol_names:
+            db.execute("ALTER TABLE subscriptions ADD COLUMN stripe_subscription_id TEXT")
 
         # Seed one demo product (idempotent)
         db.execute(
@@ -230,6 +249,134 @@ def create_app() -> Flask:
             ).fetchone()
         return render_template("product.html", product=product, sub=sub)
 
+    # ----- Stripe Checkout -----
+    @app.route("/checkout/<slug>", methods=["POST", "GET"])  # allow GET for simplicity
+    @login_required
+    def checkout(slug: str):
+        db = get_db()
+        product = db.execute("SELECT * FROM products WHERE slug = ?", (slug,)).fetchone()
+        if product is None:
+            abort(404)
+        price_id = product["stripe_price_id"] if "stripe_price_id" in product.keys() else None
+        if not price_id:
+            flash("This product is not Stripe-enabled.", "error")
+            return redirect(url_for("product_page", slug=slug))
+
+        # Ensure we have a Stripe customer or use email to create one at checkout
+        user_row = db.execute("SELECT * FROM users WHERE id = ?", (current_user.id,)).fetchone()
+        customer_id = (user_row["stripe_customer_id"] if user_row and "stripe_customer_id" in user_row.keys() else None)
+
+        try:
+            success_url = url_for("my_subscriptions", _external=True) + "?session_id={CHECKOUT_SESSION_ID}"
+            cancel_url = url_for("product_page", slug=slug, _external=True)
+            session = stripe.checkout.Session.create(
+                mode="subscription",
+                line_items=[{"price": price_id, "quantity": 1}],
+                allow_promotion_codes=True,
+                success_url=success_url,
+                cancel_url=cancel_url,
+                client_reference_id=str(current_user.id),
+                customer=customer_id or None,
+                customer_email=None if customer_id else current_user.email,
+                metadata={
+                    "user_id": str(current_user.id),
+                    "product_id": str(product["id"]),
+                    "price_id": price_id,
+                    "slug": slug,
+                },
+            )
+        except Exception as e:
+            flash(f"Stripe error: {e}", "error")
+            return redirect(url_for("product_page", slug=slug))
+
+        return redirect(session.url, code=303)
+
+    # ----- Stripe Billing Portal -----
+    @app.route("/billing-portal")
+    @login_required
+    def billing_portal():
+        db = get_db()
+        row = db.execute("SELECT stripe_customer_id FROM users WHERE id = ?", (current_user.id,)).fetchone()
+        customer_id = row["stripe_customer_id"] if row else None
+        if not customer_id:
+            flash("No Stripe customer found. Complete checkout first.", "error")
+            return redirect(url_for("my_subscriptions"))
+        try:
+            portal = stripe.billing_portal.Session.create(
+                customer=customer_id,
+                return_url=url_for("my_subscriptions", _external=True),
+            )
+        except Exception as e:
+            flash(f"Stripe error: {e}", "error")
+            return redirect(url_for("my_subscriptions"))
+        return redirect(portal.url, code=303)
+
+    # ----- Stripe Webhook -----
+    @app.route("/webhook", methods=["POST"])
+    def webhook():
+        payload = request.data
+        sig = request.headers.get("Stripe-Signature", "")
+        try:
+            event = stripe.Webhook.construct_event(payload, sig, webhook_secret)
+        except Exception:
+            return ("", 400)
+
+        db = get_db()
+        etype = event.get("type")
+        data = event.get("data", {}).get("object", {})
+
+        def upsert_sub(user_id: int, product_id: int, stripe_sub_id: str | None, active: bool):
+            row = db.execute(
+                "SELECT id, status FROM subscriptions WHERE user_id = ? AND product_id = ? ORDER BY id DESC LIMIT 1",
+                (user_id, product_id),
+            ).fetchone()
+            if row is None:
+                db.execute(
+                    "INSERT INTO subscriptions (user_id, product_id, status, stripe_subscription_id) VALUES (?, ?, ?, ?)",
+                    (user_id, product_id, "active" if active else "canceled", stripe_sub_id),
+                )
+            else:
+                if active:
+                    db.execute(
+                        "UPDATE subscriptions SET status='active', started_at=CURRENT_TIMESTAMP, canceled_at=NULL, stripe_subscription_id=? WHERE id=?",
+                        (stripe_sub_id, row["id"]),
+                    )
+                else:
+                    db.execute(
+                        "UPDATE subscriptions SET status='canceled', canceled_at=CURRENT_TIMESTAMP, stripe_subscription_id=? WHERE id=?",
+                        (stripe_sub_id, row["id"]),
+                    )
+            db.commit()
+
+        if etype == "checkout.session.completed":
+            user_id = data.get("metadata", {}).get("user_id") or data.get("client_reference_id")
+            product_id = data.get("metadata", {}).get("product_id")
+            customer_id = data.get("customer")
+            sub_id = data.get("subscription")
+            # Attach customer to user record
+            if user_id and customer_id:
+                db.execute("UPDATE users SET stripe_customer_id = ? WHERE id = ?", (customer_id, int(user_id)))
+                db.commit()
+            if user_id and product_id:
+                upsert_sub(int(user_id), int(product_id), sub_id, True)
+
+        elif etype in ("customer.subscription.created", "customer.subscription.updated", "customer.subscription.deleted"):
+            sub = data
+            status = sub.get("status")
+            active = status in {"active", "trialing"}
+            sub_id = sub.get("id")
+            customer_id = sub.get("customer")
+            # Find user by customer
+            urow = db.execute("SELECT id FROM users WHERE stripe_customer_id = ?", (customer_id,)).fetchone()
+            # Determine product via price on first item
+            items = (sub.get("items", {}) or {}).get("data", [])
+            price_id = items[0].get("price", {}).get("id") if items else None
+            prow = db.execute("SELECT id FROM products WHERE stripe_price_id = ?", (price_id,)).fetchone() if price_id else None
+            if urow and prow:
+                upsert_sub(int(urow["id"]), int(prow["id"]), sub_id, active)
+
+        return ("", 200)
+
     @app.route("/products/new", methods=["GET", "POST"])
     @login_required
     def new_product():
@@ -240,6 +387,7 @@ def create_app() -> Flask:
             title = (request.form.get("title") or "").strip()
             description = (request.form.get("description") or "").strip()
             price_str = (request.form.get("price_cents") or "").strip()
+            stripe_price_id = (request.form.get("stripe_price_id") or "").strip() or None
             error = None
             try:
                 price_cents = int(price_str)
@@ -260,8 +408,8 @@ def create_app() -> Flask:
 
             if error is None:
                 db.execute(
-                    "INSERT INTO products (slug, title, price_cents, description, seller_id) VALUES (?, ?, ?, ?, ?)",
-                    (slug, title, price_cents, description, current_user.id),
+                    "INSERT INTO products (slug, title, price_cents, description, seller_id, stripe_price_id) VALUES (?, ?, ?, ?, ?, ?)",
+                    (slug, title, price_cents, description, current_user.id, stripe_price_id),
                 )
                 db.commit()
                 flash("Product created.", "success")
@@ -278,6 +426,9 @@ def create_app() -> Flask:
         product = db.execute("SELECT * FROM products WHERE slug = ?", (slug,)).fetchone()
         if product is None:
             abort(404)
+        # If Stripe is configured for this product, use Checkout flow instead
+        if ("stripe_price_id" in product.keys()) and product["stripe_price_id"]:
+            return redirect(url_for("checkout", slug=slug))
         sub = db.execute(
             "SELECT * FROM subscriptions WHERE user_id = ? AND product_id = ? ORDER BY id DESC LIMIT 1",
             (current_user.id, product["id"]),
