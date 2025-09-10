@@ -222,6 +222,17 @@ def create_app() -> Flask:
     @app.route("/subscriptions")
     @login_required
     def my_subscriptions():
+        # If the user has a Stripe customer, send them straight to the Billing Portal
+        # Override with ?local=1 to view the in-app list.
+        if request.args.get("local") != "1":
+            db = get_db()
+            row = db.execute(
+                "SELECT stripe_customer_id FROM users WHERE id = ?",
+                (current_user.id,),
+            ).fetchone()
+            if row and row["stripe_customer_id"]:
+                return redirect(url_for("billing_portal"))
+
         db = get_db()
         subs = db.execute(
             """
@@ -284,6 +295,7 @@ def create_app() -> Flask:
                     "price_id": price_id,
                     "slug": slug,
                 },
+                idempotency_key=f"checkout_{current_user.id}_{product['id']}",
             )
         except Exception as e:
             flash(f"Stripe error: {e}", "error")
@@ -304,7 +316,7 @@ def create_app() -> Flask:
         try:
             portal = stripe.billing_portal.Session.create(
                 customer=customer_id,
-                return_url=url_for("my_subscriptions", _external=True),
+                return_url=url_for("my_subscriptions", _external=True) + "?local=1",
             )
         except Exception as e:
             flash(f"Stripe error: {e}", "error")
@@ -314,7 +326,8 @@ def create_app() -> Flask:
     # ----- Stripe Webhook -----
     @app.route("/webhook", methods=["POST"])
     def webhook():
-        payload = request.data
+        # Stripe SDK expects a string payload for signature verification
+        payload = request.get_data(as_text=True)
         sig = request.headers.get("Stripe-Signature", "")
         try:
             event = stripe.Webhook.construct_event(payload, sig, webhook_secret)
