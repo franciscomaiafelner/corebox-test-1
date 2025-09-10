@@ -3,7 +3,6 @@
 {% block content %}
   <section>
     <h1>My Subscriptions</h1>
-    <p><a class="btn" href="{{ url_for('billing_portal') }}">Manage Billing</a></p>
 
     {% if not subs %}
       <p class="muted">You have no subscriptions yet.</p>

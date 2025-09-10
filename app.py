@@ -223,6 +223,27 @@ def create_app() -> Flask:
     @login_required
     def my_subscriptions():
         db = get_db()
+        # If the user has a Stripe customer ID, send them directly to the
+        # Stripe billing portal for subscription management. This keeps the
+        # local app and Stripe in sync and offloads management to Stripe.
+        row = db.execute(
+            "SELECT stripe_customer_id FROM users WHERE id = ?",
+            (current_user.id,),
+        ).fetchone()
+        customer_id = row["stripe_customer_id"] if row else None
+
+        if customer_id:
+            try:
+                portal = stripe.billing_portal.Session.create(
+                    customer=customer_id,
+                    return_url=url_for("home", _external=True),
+                )
+                return redirect(portal.url, code=303)
+            except Exception as e:
+                # If Stripe errors, fall back to showing the local page.
+                flash(f"Stripe error: {e}", "error")
+
+        # Fallback: show locally stored subscriptions (e.g. when no Stripe customer yet)
         subs = db.execute(
             """
             SELECT s.*, p.title, p.slug, p.price_cents
@@ -300,15 +321,15 @@ def create_app() -> Flask:
         customer_id = row["stripe_customer_id"] if row else None
         if not customer_id:
             flash("No Stripe customer found. Complete checkout first.", "error")
-            return redirect(url_for("my_subscriptions"))
+            return redirect(url_for("home"))
         try:
             portal = stripe.billing_portal.Session.create(
                 customer=customer_id,
-                return_url=url_for("my_subscriptions", _external=True),
+                return_url=url_for("home", _external=True),
             )
         except Exception as e:
             flash(f"Stripe error: {e}", "error")
-            return redirect(url_for("my_subscriptions"))
+            return redirect(url_for("home"))
         return redirect(portal.url, code=303)
 
     # ----- Stripe Webhook -----
