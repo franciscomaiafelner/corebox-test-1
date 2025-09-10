@@ -1,0 +1,39 @@
+{% extends 'base.html' %}
+{% block title %}Seller Dashboard — Marketplace{% endblock %}
+{% block content %}
+  <section>
+    <h1>Seller Dashboard</h1>
+    <div style="display:grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap:12px; margin: 12px 0;">
+      <div style="background: var(--card); padding: 16px; border-radius: 8px;">
+        <div class="muted small">Active Subscriptions</div>
+        <div style="font-size: 24px; font-weight: 700;">{{ active_count }}</div>
+      </div>
+      <div style="background: var(--card); padding: 16px; border-radius: 8px;">
+        <div class="muted small">MRR</div>
+        <div style="font-size: 24px; font-weight: 700;">{{ mrr_cents | usd }}</div>
+      </div>
+    </div>
+
+    <h2 style="margin-top: 20px;">Recent Subscriptions</h2>
+    {% if not recent %}
+      <p class="muted">No subscriptions yet.</p>
+    {% else %}
+      <div class="list">
+        {% for r in recent %}
+          <div class="item" style="display:flex; align-items:center; gap:12px; justify-content:space-between; background: var(--card); padding: 12px; border-radius: 8px; margin-bottom: 10px;">
+            <div>
+              <div><strong>{{ r.title }}</strong> — <span class="small muted">{{ r.price_cents | usd }}/mo</span></div>
+              <div class="small muted">Buyer: {{ r.email }}</div>
+              <div class="small">Status: <strong>{{ r.status }}</strong></div>
+              <div class="small muted">Started: {{ r.started_at }}</div>
+            </div>
+            <div>
+              <a class="btn" href="{{ url_for('product_page', slug=r.slug) }}">View</a>
+            </div>
+          </div>
+        {% endfor %}
+      </div>
+    {% endif %}
+  </section>
+{% endblock %}
+

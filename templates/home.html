@@ -1,0 +1,33 @@
+{% extends 'base.html' %}
+{% block title %}Home — Marketplace{% endblock %}
+{% block content %}
+  <section>
+    <div style="display:flex; align-items:center; gap:12px; justify-content:space-between;">
+      <h1 style="margin:0;">Products</h1>
+      {% if current_user.is_authenticated and current_user.role == 'seller' %}
+        <a href="{{ url_for('new_product') }}" class="btn">New Product</a>
+      {% endif %}
+    </div>
+
+    {% if not products %}
+      <p class="muted">No products yet.</p>
+    {% else %}
+      <div class="list" style="margin-top:12px;">
+        {% for p in products %}
+          <article class="card" style="margin-bottom:12px;">
+            <h2 style="margin:0 0 6px 0;"><a href="{{ url_for('product_page', slug=p.slug) }}">{{ p.title }}</a></h2>
+            {% if p.description %}
+              <p class="muted" style="margin-top:0;">{{ p.description }}</p>
+            {% endif %}
+            <div style="display:flex; align-items:center; gap:8px; justify-content:space-between;">
+              <div class="small muted">{{ p.price_cents | usd }} / month</div>
+              {% if p.seller_email %}
+                <div class="small muted">Seller: {{ p.seller_email }}</div>
+              {% endif %}
+            </div>
+          </article>
+        {% endfor %}
+      </div>
+    {% endif %}
+  </section>
+{% endblock %}

@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{% block title %}Marketplace{% endblock %}</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}" />
+  </head>
+  <body>
+    <header class="container">
+      <nav class="nav">
+        <a href="{{ url_for('home') }}" class="brand">Market</a>
+        <div class="spacer"></div>
+        {% if current_user.is_authenticated %}
+          <span class="user">{{ current_user.email }}</span>
+          {% if current_user.role == 'seller' %}
+            <a href="{{ url_for('seller_dashboard') }}" class="btn">Dashboard</a>
+            <a href="{{ url_for('new_product') }}" class="btn">New Product</a>
+          {% endif %}
+          <a href="{{ url_for('my_subscriptions') }}" class="btn">Subscriptions</a>
+          <a href="{{ url_for('logout') }}" class="btn">Logout</a>
+        {% else %}
+          <a href="{{ url_for('login') }}" class="btn">Login</a>
+          <a href="{{ url_for('register') }}" class="btn primary">Register</a>
+        {% endif %}
+      </nav>
+    </header>
+
+    <main class="container">
+      {% with messages = get_flashed_messages(with_categories=true) %}
+        {% if messages %}
+          <ul class="flash">
+            {% for category, message in messages %}
+              <li class="{{ category }}">{{ message }}</li>
+            {% endfor %}
+          </ul>
+        {% endif %}
+      {% endwith %}
+
+      {% block content %}{% endblock %}
+    </main>
+
+    <footer class="container muted small">
+      <p>Simple MVP — Flask + SQLite</p>
+    </footer>
+  </body>
+  </html>

@@ -1,0 +1,21 @@
+{% extends 'base.html' %}
+{% block title %}New Product — Marketplace{% endblock %}
+{% block content %}
+  <h1>New Product</h1>
+  <form method="post" class="form">
+    <label>Slug
+      <input type="text" name="slug" placeholder="e.g. spring-box" required />
+    </label>
+    <label>Title
+      <input type="text" name="title" placeholder="Spring Box" required />
+    </label>
+    <label>Price (in cents)
+      <input type="number" name="price_cents" min="0" step="1" placeholder="2500" required />
+    </label>
+    <label>Description
+      <textarea name="description" rows="4" placeholder="What’s inside the box?"></textarea>
+    </label>
+    <button type="submit" class="btn primary">Create</button>
+  </form>
+{% endblock %}
+

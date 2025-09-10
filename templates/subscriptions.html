@@ -1,0 +1,34 @@
+{% extends 'base.html' %}
+{% block title %}My Subscriptions — Marketplace{% endblock %}
+{% block content %}
+  <section>
+    <h1>My Subscriptions</h1>
+
+    {% if not subs %}
+      <p class="muted">You have no subscriptions yet.</p>
+      <p><a class="btn" href="{{ url_for('product_page', slug='pro-plan') }}">Browse Pro Plan</a></p>
+    {% else %}
+      <div class="list">
+        {% for s in subs %}
+          <div class="item" style="display:flex; align-items:center; gap:12px; justify-content:space-between; background: var(--card); padding: 12px; border-radius: 8px; margin-bottom: 10px;">
+            <div>
+              <div><a href="{{ url_for('product_page', slug=s.slug) }}">{{ s.title }}</a></div>
+              <div class="small muted">{{ s.price_cents | usd }} / month</div>
+              <div class="small">Status: <strong>{{ s.status }}</strong></div>
+            </div>
+            <div>
+              <form method="post" action="{{ url_for('product_subscribe', slug=s.slug) }}">
+                {% if s.status == 'active' %}
+                  <button type="submit" class="btn">Cancel</button>
+                {% else %}
+                  <button type="submit" class="btn primary">Reactivate</button>
+                {% endif %}
+              </form>
+            </div>
+          </div>
+        {% endfor %}
+      </div>
+    {% endif %}
+  </section>
+{% endblock %}
+

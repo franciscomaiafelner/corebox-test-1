@@ -1,0 +1,22 @@
+{% extends 'base.html' %}
+{% block title %}Register — Marketplace{% endblock %}
+{% block content %}
+  <h1>Register</h1>
+  <form method="post" class="form">
+    <label>Email
+      <input type="email" name="email" required />
+    </label>
+    <label>Password
+      <input type="password" name="password" required />
+    </label>
+    <label>Role
+      <select name="role">
+        <option value="buyer" selected>Buyer</option>
+        <option value="seller">Seller</option>
+      </select>
+    </label>
+    <button type="submit" class="btn primary">Create Account</button>
+  </form>
+  <p class="muted small">Already have an account? <a href="{{ url_for('login') }}">Login</a></p>
+{% endblock %}
+

@@ -1,0 +1,26 @@
+{% extends 'base.html' %}
+{% block title %}{{ product.title }} — Marketplace{% endblock %}
+{% block content %}
+  <article class="card">
+    <h1>{{ product.title }}</h1>
+    <p class="muted">{{ product.description }}</p>
+    <p><strong>Price:</strong> {{ product.price_cents | usd }} / month</p>
+
+    {% if current_user.is_authenticated %}
+      <form method="post" action="{{ url_for('product_subscribe', slug=product.slug) }}" style="margin-top: 12px;">
+        {% if sub is none %}
+          <button type="submit" class="btn primary">Subscribe</button>
+        {% elif sub.status == 'active' %}
+          <p class="small">You are currently subscribed.</p>
+          <button type="submit" class="btn">Cancel Subscription</button>
+        {% else %}
+          <p class="small">Subscription is canceled.</p>
+          <button type="submit" class="btn primary">Reactivate Subscription</button>
+        {% endif %}
+      </form>
+    {% else %}
+      <p class="small muted">Please <a href="{{ url_for('login', next=request.path) }}">login</a> to subscribe.</p>
+    {% endif %}
+  </article>
+{% endblock %}
+
