@@ -24,6 +24,15 @@
             <div>
               <div><strong>{{ r.title }}</strong> — <span class="small muted">{{ r.price_cents | usd }}/mo</span></div>
               <div class="small muted">Buyer: {{ r.email }}</div>
+              {% if r.ship_name %}
+              <div class="small muted">
+                Ship to: {{ r.ship_name }}, {{ r.ship_line1 }}{% if r.ship_line2 %} {{ r.ship_line2 }}{% endif %},
+                {{ r.ship_city }}, {{ r.ship_state }} {{ r.ship_postal_code }}, {{ r.ship_country }}
+              </div>
+              <div class="small muted">
+                Contact: {{ r.ship_email }}{% if r.ship_phone %} ({{ r.ship_phone }}){% endif %}
+              </div>
+              {% endif %}
               <div class="small">Status: <strong>{{ r.status }}</strong></div>
               <div class="small muted">Started: {{ r.started_at }}</div>
             </div>
