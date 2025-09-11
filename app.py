@@ -94,6 +94,11 @@ def create_app() -> Flask:
                 FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
                 FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE CASCADE
             );
+
+            CREATE TABLE IF NOT EXISTS stripe_events (
+                id TEXT PRIMARY KEY,
+                created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+            );
             """
         )
 
@@ -322,6 +327,12 @@ def create_app() -> Flask:
             return ("", 400)
 
         db = get_db()
+        event_id = event.get("id")
+        if event_id:
+            exists = db.execute("SELECT 1 FROM stripe_events WHERE id = ?", (event_id,)).fetchone()
+            if exists:
+                return ("", 200)
+
         etype = event.get("type")
         data = event.get("data", {}).get("object", {})
 
@@ -346,7 +357,6 @@ def create_app() -> Flask:
                         "UPDATE subscriptions SET status='canceled', canceled_at=CURRENT_TIMESTAMP, stripe_subscription_id=? WHERE id=?",
                         (stripe_sub_id, row["id"]),
                     )
-            db.commit()
 
         if etype == "checkout.session.completed":
             user_id = data.get("metadata", {}).get("user_id") or data.get("client_reference_id")
@@ -356,7 +366,6 @@ def create_app() -> Flask:
             # Attach customer to user record
             if user_id and customer_id:
                 db.execute("UPDATE users SET stripe_customer_id = ? WHERE id = ?", (customer_id, int(user_id)))
-                db.commit()
             if user_id and product_id:
                 upsert_sub(int(user_id), int(product_id), sub_id, True)
 
@@ -375,6 +384,9 @@ def create_app() -> Flask:
             if urow and prow:
                 upsert_sub(int(urow["id"]), int(prow["id"]), sub_id, active)
 
+        if event_id:
+            db.execute("INSERT INTO stripe_events (id) VALUES (?)", (event_id,))
+        db.commit()
         return ("", 200)
 
     @app.route("/products/new", methods=["GET", "POST"])
