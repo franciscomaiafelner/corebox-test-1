@@ -7,7 +7,7 @@
     <p><strong>Price:</strong> {{ product.price_cents | usd }} / month</p>
 
     {% if current_user.is_authenticated %}
-      {% if product.stripe_price_id %}
+      {% if stripe_enabled and product.stripe_price_id %}
         <form method="post" action="{{ url_for('checkout', slug=product.slug) }}" style="margin-top: 12px;">
           <button type="submit" class="btn primary">Subscribe with Stripe</button>
         </form>
