@@ -459,12 +459,26 @@ def create_app() -> Flask:
                 price_cents = int(price_str)
             except Exception:
                 price_cents = -1
+
+            # Basic form validation
             if not slug:
                 error = "Slug is required."
             elif not title:
                 error = "Title is required."
             elif price_cents < 0:
                 error = "Price (cents) must be a non-negative integer."
+
+            # Validate Stripe price ID if provided
+            stripe_price = None
+            if error is None and stripe_price_id:
+                try:
+                    stripe_price = stripe.Price.retrieve(stripe_price_id)
+                except Exception:
+                    error = "Invalid Stripe price ID."
+                else:
+                    unit_amount = stripe_price.get("unit_amount")
+                    if isinstance(unit_amount, int) and unit_amount != price_cents:
+                        error = "Stripe price does not match entered price."
 
             db = get_db()
             if error is None:
