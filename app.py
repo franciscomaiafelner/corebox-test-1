@@ -117,15 +117,7 @@ def create_app() -> Flask:
         if "stripe_subscription_id" not in scol_names:
             db.execute("ALTER TABLE subscriptions ADD COLUMN stripe_subscription_id TEXT")
 
-        # Seed one demo product (idempotent)
-        db.execute(
-            """
-            INSERT OR IGNORE INTO products (slug, title, price_cents, description)
-            VALUES (?, ?, ?, ?)
-            """,
-            ("pro-plan", "Pro Plan", 1000, "Monthly plan for testing"),
-        )
-        db.commit()
+        # Note: No default products are seeded anymore.
 
     # Expose helpers on app for simple usage/testing
     app.get_db = get_db  # type: ignore[attr-defined]
@@ -222,17 +214,6 @@ def create_app() -> Flask:
     @app.route("/subscriptions")
     @login_required
     def my_subscriptions():
-        # If the user has a Stripe customer, send them straight to the Billing Portal
-        # Override with ?local=1 to view the in-app list.
-        if request.args.get("local") != "1":
-            db = get_db()
-            row = db.execute(
-                "SELECT stripe_customer_id FROM users WHERE id = ?",
-                (current_user.id,),
-            ).fetchone()
-            if row and row["stripe_customer_id"]:
-                return redirect(url_for("billing_portal"))
-
         db = get_db()
         subs = db.execute(
             """
@@ -244,7 +225,13 @@ def create_app() -> Flask:
             """,
             (current_user.id,),
         ).fetchall()
-        return render_template("subscriptions.html", subs=subs)
+        # Determine if we can offer Stripe portal
+        row = db.execute(
+            "SELECT stripe_customer_id FROM users WHERE id = ?",
+            (current_user.id,),
+        ).fetchone()
+        has_portal = bool(row and row["stripe_customer_id"] and len(subs) > 0)
+        return render_template("subscriptions.html", subs=subs, has_portal=has_portal)
 
     @app.route("/products/<slug>")
     def product_page(slug: str):

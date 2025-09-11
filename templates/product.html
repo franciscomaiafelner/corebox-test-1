@@ -11,7 +11,7 @@
         <form method="post" action="{{ url_for('checkout', slug=product.slug) }}" style="margin-top: 12px;">
           <button type="submit" class="btn primary">Subscribe with Stripe</button>
         </form>
-        <p class="small muted">Manage card or cancel in <a href="{{ url_for('billing_portal') }}">Billing</a>.</p>
+        <p class="small muted">Manage in <a href="{{ url_for('my_subscriptions') }}">Subscriptions</a>.</p>
       {% else %}
         <form method="post" action="{{ url_for('product_subscribe', slug=product.slug) }}" style="margin-top: 12px;">
           {% if sub is none %}
