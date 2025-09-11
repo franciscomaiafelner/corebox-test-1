@@ -91,6 +91,16 @@ def create_app() -> Flask:
                 status TEXT NOT NULL CHECK (status IN ('active','canceled')),
                 started_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
                 canceled_at TIMESTAMP,
+                ship_name TEXT,
+                ship_email TEXT,
+                ship_phone TEXT,
+                ship_line1 TEXT,
+                ship_line2 TEXT,
+                ship_city TEXT,
+                ship_state TEXT,
+                ship_postal_code TEXT,
+                ship_country TEXT,
+                stripe_subscription_id TEXT,
                 FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
                 FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE CASCADE
             );
@@ -116,6 +126,20 @@ def create_app() -> Flask:
         scol_names = {c[1] for c in scols}
         if "stripe_subscription_id" not in scol_names:
             db.execute("ALTER TABLE subscriptions ADD COLUMN stripe_subscription_id TEXT")
+        shipping_cols = [
+            "ship_name",
+            "ship_email",
+            "ship_phone",
+            "ship_line1",
+            "ship_line2",
+            "ship_city",
+            "ship_state",
+            "ship_postal_code",
+            "ship_country",
+        ]
+        for col in shipping_cols:
+            if col not in scol_names:
+                db.execute(f"ALTER TABLE subscriptions ADD COLUMN {col} TEXT")
 
         # Note: No default products are seeded anymore.
 
@@ -193,7 +217,24 @@ def create_app() -> Flask:
 
         recent = db.execute(
             """
-            SELECT s.*, p.title, p.slug, p.price_cents, u.email
+            SELECT
+                s.id,
+                s.status,
+                s.started_at,
+                s.canceled_at,
+                s.ship_name,
+                s.ship_email,
+                s.ship_phone,
+                s.ship_line1,
+                s.ship_line2,
+                s.ship_city,
+                s.ship_state,
+                s.ship_postal_code,
+                s.ship_country,
+                p.title,
+                p.slug,
+                p.price_cents,
+                u.email
             FROM subscriptions s
             JOIN products p ON p.id = s.product_id
             JOIN users u ON u.id = s.user_id
@@ -325,40 +366,65 @@ def create_app() -> Flask:
         etype = event.get("type")
         data = event.get("data", {}).get("object", {})
 
-        def upsert_sub(user_id: int, product_id: int, stripe_sub_id: str | None, active: bool):
+        def upsert_sub(
+            user_id: int, product_id: int, stripe_sub_id: str | None, active: bool
+        ) -> int | None:
             row = db.execute(
                 "SELECT id, status FROM subscriptions WHERE user_id = ? AND product_id = ? ORDER BY id DESC LIMIT 1",
                 (user_id, product_id),
             ).fetchone()
             if row is None:
-                db.execute(
+                cur = db.execute(
                     "INSERT INTO subscriptions (user_id, product_id, status, stripe_subscription_id) VALUES (?, ?, ?, ?)",
                     (user_id, product_id, "active" if active else "canceled", stripe_sub_id),
                 )
+                sub_row_id = cur.lastrowid
             else:
+                sub_row_id = row["id"]
                 if active:
                     db.execute(
                         "UPDATE subscriptions SET status='active', started_at=CURRENT_TIMESTAMP, canceled_at=NULL, stripe_subscription_id=? WHERE id=?",
-                        (stripe_sub_id, row["id"]),
+                        (stripe_sub_id, sub_row_id),
                     )
                 else:
                     db.execute(
                         "UPDATE subscriptions SET status='canceled', canceled_at=CURRENT_TIMESTAMP, stripe_subscription_id=? WHERE id=?",
-                        (stripe_sub_id, row["id"]),
+                        (stripe_sub_id, sub_row_id),
                     )
             db.commit()
+            return sub_row_id
 
         if etype == "checkout.session.completed":
             user_id = data.get("metadata", {}).get("user_id") or data.get("client_reference_id")
             product_id = data.get("metadata", {}).get("product_id")
             customer_id = data.get("customer")
             sub_id = data.get("subscription")
+            shipping = data.get("customer_details") or data.get("shipping")
             # Attach customer to user record
             if user_id and customer_id:
                 db.execute("UPDATE users SET stripe_customer_id = ? WHERE id = ?", (customer_id, int(user_id)))
                 db.commit()
+            sub_row_id = None
             if user_id and product_id:
-                upsert_sub(int(user_id), int(product_id), sub_id, True)
+                sub_row_id = upsert_sub(int(user_id), int(product_id), sub_id, True)
+            if sub_row_id and shipping:
+                addr = shipping.get("address") or {}
+                db.execute(
+                    "UPDATE subscriptions SET ship_name=?, ship_email=?, ship_phone=?, ship_line1=?, ship_line2=?, ship_city=?, ship_state=?, ship_postal_code=?, ship_country=? WHERE id=?",
+                    (
+                        shipping.get("name"),
+                        shipping.get("email"),
+                        shipping.get("phone"),
+                        addr.get("line1"),
+                        addr.get("line2"),
+                        addr.get("city"),
+                        addr.get("state"),
+                        addr.get("postal_code"),
+                        addr.get("country"),
+                        sub_row_id,
+                    ),
+                )
+                db.commit()
 
         elif etype in ("customer.subscription.created", "customer.subscription.updated", "customer.subscription.deleted"):
             sub = data
